@@ -136,8 +136,11 @@ def main():
             # Safely create BIDS conversion directory and all containing directories as needed
             if not os.path.isdir(bids_conv_dir):
                 os.makedirs(bids_conv_dir)
+                needs_converting = True
+            else:
+                needs_converting = False
 
-            if first_pass:
+            if first_pass or needs_converting:
 
                 # Run dcm2niix conversion into temporary conversion directory
                 print('  Converting all DICOM images within directory %s' % dcm_ses_dir)
@@ -197,9 +200,22 @@ def bids_run_conversion(conv_dir, first_pass, prot_dict, sid_dir, SID, SES, use_
 
     if os.path.isdir(conv_dir):
 
-        # Loop over all Nifti files (*.nii, *.nii.gz) for this subject
         # glob returns the full relative path from the tmp dir
-        for src_nii_fname in glob(os.path.join(conv_dir, '*.nii*')):
+        filelist = glob(os.path.join(conv_dir, '*.nii*'))
+        
+        # Determine where we have runs with the same description (name)
+        run_suffix=[0] * len(filelist)
+        for file_index in range(len(filelist)-1):
+            src_nii_fname = filelist[file_index]
+            subj_name, ser_desc, seq_name, ser_no = parse_dcm2niix_fname(src_nii_fname)
+            matches = [i for i in range(len(filelist)) if ser_desc in filelist[i]]
+            if len(matches) > 1:
+                for i in matches:
+                    run_suffix[i]=i-min(matches)+1  #Yes, this will re-create this little list several times and no, that's not ideal
+
+        # Loop over all Nifti files (*.nii, *.nii.gz) for this subject
+        file_index = 0
+        for src_nii_fname in filelist:
 
             # Parse image filename into fields
             subj_name, ser_desc, seq_name, ser_no = parse_dcm2niix_fname(src_nii_fname)
@@ -242,7 +258,8 @@ def bids_run_conversion(conv_dir, first_pass, prot_dict, sid_dir, SID, SES, use_
                     # TODO: Work out a better way to handle duplicate runs with identical protocol names
                     if use_run:
                         bids_suffix = bids_add_run_number(bids_suffix, ser_no)
-
+                    if run_suffix[file_index]:
+                        bids_suffix = bids_add_run_number(bids_suffix, str(run_suffix[file_index]))
                     # Create BIDS purpose directory
                     bids_purpose_dir = os.path.join(sid_dir, bids_purpose)
                     if not os.path.isdir(bids_purpose_dir):
@@ -257,6 +274,7 @@ def bids_run_conversion(conv_dir, first_pass, prot_dict, sid_dir, SID, SES, use_
                     bids_purpose_handling(bids_purpose, seq_name,
                                           src_nii_fname, src_json_fname,
                                           bids_nii_fname, bids_json_fname)
+            file_index += 1
 
         # Cleanup temporary working directory after Pass 2
         if not first_pass:
@@ -550,7 +568,6 @@ def bids_catch_duplicate(fname):
         new_fname = os.path.join(fpath, fstub + '_' + str(n) + '.' + fext)
 
     return new_fname
-
 
 def bids_events_template(bold_fname):
     """
