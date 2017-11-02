@@ -81,8 +81,12 @@ def main():
     args = parser.parse_args()
 
     dcm_root_dir = args.indir
-    bids_root_dir = args.outdir
+    src_root_dir = args.outdir
     use_run = args.use_run
+
+    # Derive working directory from dcm_root_dir
+    bids_root_dir = os.path.dirname(os.path.abspath(src_root_dir))
+    work_root_dir = os.path.join(bids_root_dir, 'work', 'dcm2bids')
 
     # Load protocol translation and exclusion info from DICOM directory
     # If no translator is present, prot_dict is an empty dictionary
@@ -91,7 +95,7 @@ def main():
     prot_dict_json = os.path.join(dcm_root_dir, 'Protocol_Translator.json')
     prot_dict = bids_load_prot_dict(prot_dict_json)
 
-    if prot_dict and os.path.isdir(bids_root_dir):
+    if prot_dict and os.path.isdir(src_root_dir):
         print('')
         print('------------------------------------------------------------')
         print('Pass 2 : Organizing Nifti data into BIDS directories')
@@ -104,9 +108,9 @@ def main():
         print('------------------------------------------------------------')
         first_pass = True
 
-    # Initialize BIDS output directory
+    # Initialize BIDS source and work directories
     if not first_pass:
-        participants_fd = bids_init(bids_root_dir)
+        participants_fd = bids_init(src_root_dir)
 
     # Loop over subject directories in DICOM root
     for dcm_sub_dir in glob(dcm_root_dir + '/*/'):
@@ -123,30 +127,38 @@ def main():
 
             print('  Processing session ' + SES)
 
-            # BIDS subject, session and conversion directories
+            # Subject and session prefixes
             sub_prefix = 'sub-' + SID
             ses_prefix = 'ses-' + SES
-            bids_sub_dir = os.path.join(bids_root_dir, sub_prefix)
-            bids_ses_dir = os.path.join(bids_sub_dir, ses_prefix)
-            bids_conv_dir = os.path.join(bids_ses_dir, 'conv')
+
+            # BIDS source directories
+            src_sub_dir = os.path.join(src_root_dir, sub_prefix)
+            src_ses_dir = os.path.join(src_sub_dir, ses_prefix)
+
+            # Working directories
+            work_sub_dir = os.path.join(work_root_dir, sub_prefix)
+            work_ses_dir = os.path.join(work_root_dir, sub_prefix)
+            work_conv_dir = os.path.join(src_ses_dir, 'conv')
 
             # Check if subject/session directory exists
             # If it doesn't this is a new sub/ses added to the DICOM root and needs conversion
 
             # Safely create BIDS conversion directory and all containing directories as needed
-            if not os.path.isdir(bids_conv_dir):
-                os.makedirs(bids_conv_dir)
+            if not os.path.isdir(work_conv_dir):
+                os.makedirs(work_conv_dir)
                 needs_converting = True
             else:
                 needs_converting = False
 
+
+
             if first_pass or needs_converting:
 
-                # Run dcm2niix conversion into temporary conversion directory
+                # Run dcm2niix conversion into work directory
                 print('  Converting all DICOM images within directory %s' % dcm_ses_dir)
                 devnull = open(os.devnull, 'w')
                 subprocess.call(['dcm2niix', '-b', 'y', '-z', 'y', '-f', '%n--%d--%q--%s',
-                                 '-o', bids_conv_dir, dcm_ses_dir],
+                                 '-o', work_conv_dir, dcm_ses_dir],
                                 stdout=devnull, stderr=subprocess.STDOUT)
 
             else:
@@ -158,7 +170,7 @@ def main():
                 participants_fd.write("sub-%s\t%s\t%s\n" % (SID, dcm_info['Sex'], dcm_info['Age']))
 
             # Run DICOM conversions
-            bids_run_conversion(bids_conv_dir, first_pass, prot_dict, bids_ses_dir, SID, SES, use_run)
+            bids_run_conversion(work_conv_dir, first_pass, prot_dict, src_ses_dir, SID, SES, use_run)
 
     if first_pass:
         # Create a template protocol dictionary
@@ -169,17 +181,6 @@ def main():
 
     # Clean exit
     sys.exit(0)
-
-
-def bids_listdir(dname):
-    """
-    Return list of non-hidden subdirectories of a given directory
-
-    :param dname:
-    :return:
-    """
-
-    return
 
 
 def bids_run_conversion(conv_dir, first_pass, prot_dict, sid_dir, SID, SES, use_run):
@@ -202,7 +203,7 @@ def bids_run_conversion(conv_dir, first_pass, prot_dict, sid_dir, SID, SES, use_
 
         # glob returns the full relative path from the tmp dir
         filelist = glob(os.path.join(conv_dir, '*.nii*'))
-        
+
         # Determine where we have runs with the same description (name)
         run_suffix=[0] * len(filelist)
         for file_index in range(len(filelist)-1):
@@ -568,6 +569,7 @@ def bids_catch_duplicate(fname):
         new_fname = os.path.join(fpath, fstub + '_' + str(n) + '.' + fext)
 
     return new_fname
+
 
 def bids_events_template(bold_fname):
     """
