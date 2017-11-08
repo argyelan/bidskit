@@ -137,7 +137,7 @@ def main():
 
             # Working directories
             work_sub_dir = os.path.join(work_root_dir, sub_prefix)
-            work_ses_dir = os.path.join(work_root_dir, sub_prefix)
+            work_ses_dir = os.path.join(work_root_dir, ses_prefix)
             work_conv_dir = os.path.join(src_ses_dir, 'conv')
 
             # Check if subject/session directory exists
@@ -261,7 +261,8 @@ def bids_run_conversion(conv_dir, first_pass, prot_dict, sid_dir, SID, SES, use_
                         bids_suffix = bids_add_run_number(bids_suffix, ser_no)
                     if run_suffix[file_index]:
                         bids_suffix = bids_add_run_number(bids_suffix, str(run_suffix[file_index]))
-                    # Create BIDS purpose directory
+
+                    # Create BIDS purpose directory (anat, func, fmap, etc)
                     bids_purpose_dir = os.path.join(sid_dir, bids_purpose)
                     if not os.path.isdir(bids_purpose_dir):
                         os.makedirs(bids_purpose_dir)
